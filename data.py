@@ -20,7 +20,6 @@ from PIL import Image
 from utils import preprocess
 from utils import gen_mean_activity
 from utils import Store
-from data_augment import augment
 
 class LSVRC2010:
     """
@@ -40,7 +39,7 @@ class LSVRC2010:
     | |____ILSVRC2010_val_00000001.JPEG
     """
 
-    def __init__(self, path, batch_size, augment=False):
+    def __init__(self, path, batch_size):
         """
         Find which folder has what kind of images
         Find which image belongs to which folder and what category.
@@ -49,7 +48,6 @@ class LSVRC2010:
         """
         self.logger = logging.getLogger('VGG.LSVRC2010')
         self.batch_size = batch_size
-        self.augment = augment
         self.image_size = (227, 227, 3)
 
         # Directory paths
