@@ -126,27 +126,21 @@ def get_mean_activity():
 
 def resize(img):
     """
-    Resize the image to 256 x 256.
+    Resize the image isotropically with smallest image side as S.
 
-    Rescale the image such that the shorter side will be
-    256 and then crop out the central 256 x 256 patch.
+    Let S be the smallest side of an isotropically-rescaled image.
+    To rescale an image isotropically we maintain the aspect ratio(ratio
+    of width to height and vice versa).
     """
-    # Resize the shorter size to 256
-    if img.width < 256:
-        img = img.resize((256, img.height))
-    if img.height < 256:
-        img = img.resize((img.width, 256))
+    new_smallest_side = randint(256, 512)
 
-    # Find the central box
-    width_mid = img.width // 2
-    height_mid = img.height // 2
-    left = width_mid - 128 if width_mid >= 128 else 0
-    right = width_mid + 128
-    upper = height_mid - 128 if height_mid >= 128 else 0
-    lower = height_mid + 128
-
-    # Crop the central 256 x 256 patch of the image
-    img = img.crop((left, upper, right, lower))
+    # Rescale isotropically
+    if img.width <= img.height:
+        img = img.resize((new_smallest_side,
+                          round(new_smallest_side * img.height / img.width)))
+    else:
+        img = img.resize((round(new_smallest_side * img.width / img.height),
+                          new_smallest_side))
 
     # Change the mode to RGB if it is not
     if img.mode != 'RGB':
@@ -154,7 +148,10 @@ def resize(img):
 
     return img
 
-def preprocess(function, resize_crop=True):
+def preprocess(function, resize_crop=True, augment=True):
+    """
+    Preprocess (resize, crop, optionally augment) the image
+    """
     def crop(image, image_size):
         """
         Randomly crop `image_size` of the the `image`
@@ -169,6 +166,37 @@ def preprocess(function, resize_crop=True):
                            start_width + image_size[0],
                            start_height + image_size[1]))
 
+    def _augment(image, transpose=False, color_shift=False):
+        """
+        Do random horizontal flipping and random RGB color shift.
+
+        With 50% probability flip the image horizontally.
+        With 90% probability add a quantity to the image pixels as
+        described in `AlexNet <https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks.pdf>`_
+        paper.
+
+        The eigen value and eigen vector for imagenet is taken from
+        `stackoverflow <https://stackoverflow.com/questions/43328600/does-anyone-have-the-eigenvalue-and-eigenvectors-for-alexnets-pca-noise-from-th>`_
+
+        :param image: Doing transpose on pillow object is easier. But
+                      doing color shift on numpy is easier. so the type of
+                      image is dependent what exactly is being performed.
+        """
+        if transpose and randint(1, 2) == 1:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+
+        if color_shift and randint(1, 10) != 1:
+            eigval = np.array([[55.46], [4.794], [1.148]])
+            eigvec = np.array([[-0.5675, 0.7192, 0.4009],
+                               [-0.5808, -0.0045, -0.8140],
+                               [-0.5836, -0.6948, 0.4203]])
+            alpha = np.random.normal(loc=0, scale=0.1, size=(3, 1))
+            pca = np.dot(eigvec, alpha * eigval)
+
+            image = image + pca.reshape((1, 1, 3))
+
+        return image
+
     def wrapper(*args, **kwargs):
         self = args[0]
 
@@ -176,9 +204,16 @@ def preprocess(function, resize_crop=True):
         if resize_crop:
             img = resize(img)
             img = crop(img, self.image_size)
+        # flip the image horizontally
+        if augment:
+            img = _augment(img, transpose=True)
         img.load()
 
         npimg = np.asarray(img, dtype = "int32")
+        # add multiples of pca to the image
+        if augment:
+            npimg = _augment(npimg, color_shift=True)
+
         # Subtract mean activity from each channel
         mean = get_mean_activity()
 
