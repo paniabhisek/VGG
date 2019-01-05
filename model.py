@@ -1,10 +1,18 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# local modules
+# External library modules
+import tensorflow as tf
+
+# library modules
 import json
 import operator
 import functools
+import os
+
+# local modules
+from data import LSVRC2010
+from logs import get_logger
 
 class VGG:
     """
@@ -13,7 +21,7 @@ class VGG:
     This is the tensorflow implementation of
     `Very Deep Convolutional Networks for Large Scale Image Recognition <https://arxiv.org/pdf/1409.1556.pdf>`_
     """
-    def __init__(self):
+    def __init__(self, path):
         """
         Build the VGG model
         """
@@ -28,7 +36,14 @@ class VGG:
 
         self.global_step = tf.Variable(tf.constant(0))
 
+        self.path = path
+        self.model_path = os.path.join(os.getcwd(), 'model', 'model.ckpt')
+        if not os.path.exists(os.path.join(os.getcwd(), 'model')):
+            os.mkdir(os.path.join(os.getcwd(), 'model'))
+
         self.read_vgg_conf()
+
+        self.logger = get_logger()
 
     def read_vgg_conf(self):
         """
@@ -127,7 +142,7 @@ class VGG:
         l2 = lambd * tf.reduce_sum([tf.nn.l2_loss(weight) for weight in weights])
         return l2
 
-    def create_graph(self):
+    def build_graph(self):
         """
         Creates tensorflow graph for VGG before training.
 
@@ -271,6 +286,99 @@ class VGG:
         top5 = tf.nn.in_top_k(predictions=fc19,
                               targets=tf.argmax(self.output_labels, 1), k=5)
         self.top5 = tf.reduce_mean(tf.cast(top5, tf.float32))
+
+        self.add_summaries()
+
+    def train(self, epochs, batch_size=256, learning_rate=1e-2, restore=True):
+        """
+        Train the vgg graph
+
+        Train the VGG network by batch by batch and gather summaries
+        in tensorboard to visualize loss and accuracies.
+
+        :param epochs: number of epochs to run for the training
+        :param batch_size: batch size of the model while training
+        """
+        self.build_graph()
+
+        lsvrc2010 = LSVRC2010(self.path, batch_size)
+        saver = tf.train.Saver()
+
+        init = tf.global_variables_initializer()
+        with tf.Session() as sess:
+            train_summary_writer, val_summary_writer = self.get_summary_writers(sess)
+
+            if restore and os.path.exists(self.model_path):
+                saver.restore(sess, self.model_path)
+                self.logger.info("Model Restored from path: %s",
+                                 self.model_path)
+            else:
+                sess.run(init)
+
+            for _ in range(epochs):
+                next_batch = lsvrc2010.gen_batch
+                for images, labels in next_batch:
+                    feed_dict = {self.input_images: images,
+                                 self.output_labels: labels,
+                                 self.learning_rate: learning_rate,
+                                 self.dropout: 0.5}
+                    summaries, _, step = sess.run([self.merged_summaries,
+                                                   self.optimizer,
+                                                   self.global_step],
+                                                  feed_dict=feed_dict)
+
+                    train_summary_writer.add_summary(summaries, step)
+
+                    if step % 10 == 0:
+                        feed_dict[self.dropout] = 1.0
+                        loss, top1, top5 = sess.run([self.loss,
+                                                     self.top1, self.top5],
+                                                    feed_dict=feed_dict)
+
+                        self.logger.info("Training | Step: %d Loss: %f Top1: %f Top5: %f",
+                                         step, loss, top1, top5)
+
+                    if step % 50 == 0:
+                        save_path = saver.save(sess, self.model_path)
+                        self.logger.info("Model saved in path: %s", save_path)
+
+                    if step % 500 == 0:
+                        val_images, val_labels = lsvrc2010.get_batch_val
+                        feed_dict = {self.input_images: val_images,
+                                     self.output_labels: val_labels,
+                                     self.dropout: 1.0}
+                        (val_summaries, loss, top1,
+                         top5) = sess.run([self.merged_summaries,
+                                           self.loss, self.top1, self.top5],
+                                          feed_dict=feed_dict)
+                        val_summary_writer.add_summary(val_summaries, step)
+
+                        self.logger.info("Validation | Step: %d Loss: %f Top1: %f Top5: %f",
+                                         step, loss, top1, top5)
+
+    ########################  TENSORBOARD  ############################
+
+    def add_summaries(self):
+        """
+        Add loss, top1 and top5 summaries to visualize.
+        """
+        tf.summary.scalar("loss", self.loss)
+        tf.summary.scalar("top1-accuracy", self.top1)
+        tf.summary.scalar("top5-accuracy", self.top5)
+
+        self.merged_summaries = tf.summary.merge_all()
+
+    def get_summary_writers(self, sess):
+        """
+        Returns summary writers for train and validation summary
+        """
+        train_summary = tf.summary.FileWriter(
+            os.path.join(os.getcwd(), 'graph', 'train'), sess.graph)
+
+        val_summary = tf.summary.FileWriter(
+            os.path.join(os.getcwd(), 'graph', 'val'), sess.graph)
+
+        return train_summary, val_summary
 
 if __name__ == '__main__':
     pass
