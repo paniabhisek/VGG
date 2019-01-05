@@ -1,0 +1,30 @@
+{
+    "filter": 3,
+    "stride": 1,
+    "padding": "SAME",
+    "conv0": 3,
+    "conv1": 64,
+    "conv2": 64,
+    "conv3": 128,
+    "conv4": 128,
+    "conv5": 256,
+    "conv6": 256,
+    "conv7": 256,
+    "conv8": 256,
+    "conv9": 512,
+    "conv10": 512,
+    "conv11": 512,
+    "conv12": 512,
+    "conv13": 512,
+    "conv14": 512,
+    "conv15": 512,
+    "conv16": 512,
+    "FC17": 4096,
+    "FC18": 4096,
+    "FC19": 1000,
+    "max-pooling":
+    {
+	"filter": 2,
+	"stride": 2
+    }
+}
