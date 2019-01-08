@@ -48,7 +48,7 @@ class LSVRC2010:
         """
         self.logger = logging.getLogger('VGG.LSVRC2010')
         self.batch_size = batch_size
-        self.image_size = (227, 227, 3)
+        self.image_size = (224, 224, 3)
 
         # Directory paths
         self.base_dir = path
