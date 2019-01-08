@@ -20,6 +20,7 @@ from PIL import Image
 from utils import preprocess
 from utils import gen_mean_activity
 from utils import Store
+from utils import read_vgg_conf
 
 class LSVRC2010:
     """
@@ -48,7 +49,7 @@ class LSVRC2010:
         """
         self.logger = logging.getLogger('VGG.LSVRC2010')
         self.batch_size = batch_size
-        self.image_size = (224, 224, 3)
+        self.image_size = read_vgg_conf()['input_size'] + [3]
 
         # Directory paths
         self.base_dir = path

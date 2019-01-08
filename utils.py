@@ -6,6 +6,7 @@ import os
 import pickle
 import logging
 import time
+import json
 
 from random import randint
 from random import choice
@@ -282,6 +283,14 @@ class Store:
         thread.start()
         for _ in range(ceil(self.data_size / self.batch_size)):
             yield self.queue.get()
+
+def read_vgg_conf():
+    """
+    Read the configurations from vgg19.json
+    """
+    with open('vgg19.json') as f:
+        vgg_conf = json.load(f)
+    return vgg_conf
 
 if __name__ == '__main__':
     import argparse

@@ -5,7 +5,6 @@
 import tensorflow as tf
 
 # library modules
-import json
 import operator
 import functools
 import os
@@ -13,6 +12,7 @@ import os
 # local modules
 from data import LSVRC2010
 from logs import get_logger
+from utils import read_vgg_conf
 
 class VGG:
     """
@@ -25,11 +25,13 @@ class VGG:
         """
         Build the VGG model
         """
+        self.vgg_conf = read_vgg_conf()
+        width, height = self.vgg_conf['input_size']
         self.input_images = tf.placeholder(tf.float32,
-                                           shape=[None, 224, 224, 3],
+                                           shape=[None, width, height, 3],
                                            name='input_image')
         self.output_labels = tf.placeholder(tf.float32,
-                                            shape=[None, 1000],
+                                            shape=[None, self.vgg_conf['FC19']],
                                             name='output_label')
         self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
         self.dropout = tf.placeholder(tf.float32, name='dropout')
@@ -41,17 +43,7 @@ class VGG:
         if not os.path.exists(os.path.join(os.getcwd(), 'model')):
             os.mkdir(os.path.join(os.getcwd(), 'model'))
 
-        self.read_vgg_conf()
-
         self.logger = get_logger()
-
-    def read_vgg_conf(self):
-        """
-        Read the configurations from vgg19.json
-        """
-        self.vgg_conf = None
-        with open('vgg19.json') as f:
-            self.vgg_conf = json.load(f)
 
     def get_weight(self, layer):
         """
