@@ -8,6 +8,7 @@ import tensorflow as tf
 import operator
 import functools
 import os
+import time
 
 # local modules
 from data import LSVRC2010
@@ -309,6 +310,7 @@ class VGG:
 
             for _ in range(epochs):
                 next_batch = lsvrc2010.gen_batch
+                start = time.time()
                 for images, labels in next_batch:
                     feed_dict = {self.input_images: images,
                                  self.output_labels: labels,
@@ -322,13 +324,16 @@ class VGG:
                     train_summary_writer.add_summary(summaries, step)
 
                     if step % 10 == 0:
+                        end = time.time()
                         feed_dict[self.dropout] = 1.0
                         loss, top1, top5 = sess.run([self.loss,
                                                      self.top1, self.top5],
                                                     feed_dict=feed_dict)
 
-                        self.logger.info("Training | Step: %d Loss: %f Top1: %f Top5: %f",
-                                         step, loss, top1, top5)
+                        self.logger.info("10 batches took (in seconds): %f | Training | "
+                                         "Step: %d Loss: %f Top1: %f Top5: %f",
+                                         end - start, step, loss, top1, top5)
+                        start = time.time()
 
                     if step % 50 == 0:
                         save_path = saver.save(sess, self.model_path)
@@ -373,4 +378,14 @@ class VGG:
         return train_summary, val_summary
 
 if __name__ == '__main__':
-    pass
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('image_path', metavar = 'image-path',
+                        help = 'ImageNet dataset path')
+    parser.add_argument('--restore_model', metavar = 'restore-model', default='true',
+                        help = 'true if you want to restore the saved model')
+    args = parser.parse_args()
+
+    restore = True if args.restore_model == 'true' else False
+    vgg = VGG(args.image_path)
+    vgg.train(50, restore=restore)
