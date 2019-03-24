@@ -301,10 +301,17 @@ class VGG:
         with tf.Session() as sess:
             train_summary_writer, val_summary_writer = self.get_summary_writers(sess)
 
-            if restore and os.path.exists(self.model_path):
+            if restore and os.path.exists(os.path.abspath(os.path.join(self.model_path, '..'))):
                 saver.restore(sess, self.model_path)
                 self.logger.info("Model Restored from path: %s",
                                  self.model_path)
+                step = sess.run(self.global_step)
+                if step > 155000:
+                    learning_rate /= 10
+                if step > 300000:
+                    learning_rate /= 10
+                if step > 490000:
+                    learning_rate /= 10
             else:
                 sess.run(init)
 
@@ -321,6 +328,16 @@ class VGG:
                                                    self.global_step],
                                                   feed_dict=feed_dict)
 
+                    if step == 155000:
+                        learning_rate /= 10
+                        self.logger.info("Learning rate is decreased to %f", learning_rate)
+                    if step == 300000:
+                        learning_rate /= 10
+                        self.logger.info("Learning rate is decreased to %f", learning_rate)
+                    if step == 490000:
+                        learning_rate /= 10
+                        self.logger.info("Learning rate is decreased to %f", learning_rate)
+
                     train_summary_writer.add_summary(summaries, step)
 
                     if step % 10 == 0:
@@ -335,7 +352,7 @@ class VGG:
                                          end - start, step, loss, top1, top5)
                         start = time.time()
 
-                    if step % 50 == 0:
+                    if step % 100 == 0:
                         save_path = saver.save(sess, self.model_path)
                         self.logger.info("Model saved in path: %s", save_path)
 
@@ -388,4 +405,4 @@ if __name__ == '__main__':
 
     restore = True if args.restore_model == 'true' else False
     vgg = VGG(args.image_path)
-    vgg.train(50, restore=restore)
+    vgg.train(50, batch_size=64, restore=restore)
