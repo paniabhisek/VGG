@@ -3,6 +3,7 @@
 
 # External library modules
 import tensorflow as tf
+import numpy as np
 
 # library modules
 import operator
@@ -33,7 +34,7 @@ class VGG:
                                            name='input_image')
         self.output_labels = tf.placeholder(tf.float32,
                                             shape=[None, self.vgg_conf['FC19']],
-                                            name='output_label')
+                                            name='output_labels')
         self.learning_rate = tf.placeholder(tf.float32, name='learning_rate')
         self.dropout = tf.placeholder(tf.float32, name='dropout')
 
@@ -88,6 +89,35 @@ class VGG:
                             strides=self.get_strides(),
                             padding=self.vgg_conf['padding'])
 
+    def vgg_conv_test(self, _input, layer, shape):
+        """
+        Fully connected equivalent convolutional layer in vgg.
+
+        Here the convolutional layer is initialized with
+        xavier(glorot) initializer with stride of 1
+        and 'SAME' padding. But the layer weight will be loaded
+        from the trained model.
+
+        :param _input: input to the convolutional layer
+        :param layer: layer number of the convolutional layer.
+        :param shape: shape of the weight matrix
+        """
+        initializer = tf.contrib.layers.xavier_initializer()
+        if layer == 17:
+            shape_l1 = self.vgg_conf['conv' + str(layer - 1)]
+        else:
+            shape_l1 = self.vgg_conf['FC' + str(layer - 1)]
+        _shape = [shape[0], shape[1],
+                  shape_l1, self.vgg_conf['FC' + str(layer)]]
+
+        w = tf.Variable(initializer(shape=_shape),
+                        name='weight' + str(layer))
+        tf.add_to_collection(tf.GraphKeys.WEIGHTS, w)
+
+        return tf.nn.conv2d(_input,
+                            w, strides=self.get_strides(),
+                            padding=self.vgg_conf['padding'])
+
     def vgg_pooling(self, _input):
         """
         Max pooling layer in VGG.
@@ -135,33 +165,16 @@ class VGG:
         l2 = lambd * tf.reduce_sum([tf.nn.l2_loss(weight) for weight in weights])
         return l2
 
-    def build_graph(self):
+    def build_graph_conv_1_to_16(self, input_images):
         """
-        Creates tensorflow graph for VGG before training.
+        Build the graph for first 16 layers
 
-        It has 19 layers
-            -> 16 convolutional layers
-            -> 3 fully connected layers.
-            -> 5 max pooling layers
-
-        The rough architecture is as follows
-        input_image (224 x 224 x 3) -> conv1 (224 x 224 x 64)
-        -> conv2 (224 x 224 x 64) -> maxpooling (112 x 112 x 64)
-        -> conv3 (112 x 112 x 128) -> conv4 (112 x 112 x 128)
-        -> maxpooling (56 x 56 x 128) -> conv5 (56 x 56 x 256)
-        -> conv6 (56 x 56 x 256) -> conv7 (56 x 56 x 256)
-        -> conv8 (56 x 56 x 256) -> maxpooling (28 x 28 x 256)
-        -> conv9 (28 x 28 x 512) -> conv10 (28 x 28 x 512)
-        -> conv11 (28 x 28 x 512) -> conv12 (28 x 28 x 512)
-        -> maxpooling (14 x 14 x 512) -> conv13 (14 x 14 x 512)
-        -> conv14 (14 x 14 x 512) -> conv15 (14 x 14 x 512)
-        -> conv16 (14 x 14 x 512) -> maxpooling (7 x 7 x 512)
-        == FC (25088) -> FC (4096) -> FC (4096) -> FC (1000)
+        First 16 layers are convolutional layers. They will
+        be same for training as well as inference.
         """
-
         with tf.name_scope('group1'):
             with tf.variable_scope('conv1'):
-                conv1 = self.vgg_conv(self.input_images, 1)
+                conv1 = self.vgg_conv(input_images, 1)
                 conv1 = tf.nn.relu(conv1)
 
             with tf.variable_scope('conv2'):
@@ -242,6 +255,33 @@ class VGG:
 
         with tf.variable_scope('maxpool5'):
             maxpool5 = self.vgg_pooling(conv16)
+
+        return maxpool5
+
+    def build_graph(self):
+        """
+        Creates tensorflow graph for VGG before training.
+
+        It has 19 layers
+            -> 16 convolutional layers
+            -> 3 fully connected layers.
+            -> 5 max pooling layers
+
+        The rough architecture is as follows
+        input_image (224 x 224 x 3) -> conv1 (224 x 224 x 64)
+        -> conv2 (224 x 224 x 64) -> maxpooling (112 x 112 x 64)
+        -> conv3 (112 x 112 x 128) -> conv4 (112 x 112 x 128)
+        -> maxpooling (56 x 56 x 128) -> conv5 (56 x 56 x 256)
+        -> conv6 (56 x 56 x 256) -> conv7 (56 x 56 x 256)
+        -> conv8 (56 x 56 x 256) -> maxpooling (28 x 28 x 256)
+        -> conv9 (28 x 28 x 512) -> conv10 (28 x 28 x 512)
+        -> conv11 (28 x 28 x 512) -> conv12 (28 x 28 x 512)
+        -> maxpooling (14 x 14 x 512) -> conv13 (14 x 14 x 512)
+        -> conv14 (14 x 14 x 512) -> conv15 (14 x 14 x 512)
+        -> conv16 (14 x 14 x 512) -> maxpooling (7 x 7 x 512)
+        == FC (25088) -> FC (4096) -> FC (4096) -> FC (1000)
+        """
+        maxpool5 = self.build_graph_conv_1_to_16(self.input_images)
 
         flatten = tf.layers.flatten(maxpool5)
 
@@ -370,6 +410,127 @@ class VGG:
                         self.logger.info("Validation | Step: %d Loss: %f Top1: %f Top5: %f",
                                          step, loss, top1, top5)
 
+    def get_graph_weights(self):
+        """
+        Return all the weight numbers from stored graph
+
+        For each layer store the weights in a dictionary
+        and return it.
+        """
+        self.build_graph()
+        saver = tf.train.Saver()
+        weights = tf.get_collection(tf.GraphKeys.WEIGHTS)
+        graph_weights = {}
+        with tf.Session() as sess:
+            if restore and os.path.exists(os.path.abspath(os.path.join(self.model_path, '..'))):
+                saver.restore(sess, self.model_path)
+            for weight in weights:
+                graph_weights[weight.name.split(':')[0]] = sess.run(weight)
+        tf.reset_default_graph()
+        return graph_weights
+
+    def build_graph_test(self):
+        """
+        Build the test graph.
+
+        Convert all fully connected layers into equivalent
+        convolutional layers. Keep all other configurations
+        as same as training graph
+        """
+        self.input_images_test = tf.placeholder(tf.float32,
+                                                shape=[None, None, None, 3],
+                                                name='input_image_test')
+        self.output_labels_test = tf.placeholder(tf.float32,
+                                                 shape=[None, self.vgg_conf['FC19']],
+                                                 name='output_labels_test')
+
+        maxpool5 = self.build_graph_conv_1_to_16(self.input_images_test)
+
+        # Fully connected layers
+        with tf.variable_scope('FC17'):
+            fc17 = self.vgg_conv_test(maxpool5, 17, [7, 7])
+            fc17 = tf.nn.relu(fc17)
+
+        with tf.variable_scope('FC18'):
+            fc18 = self.vgg_conv_test(fc17, 18, [1, 1])
+            fc18 = tf.nn.relu(fc18)
+
+        with tf.variable_scope('FC19'):
+            fc19 = self.vgg_conv_test(fc18, 19, [1, 1])
+
+        self.fc19_avg = tf.reduce_mean(fc19, [1, 2])
+
+        # Loss
+        self.loss = tf.nn.softmax_cross_entropy_with_logits(
+            logits=self.fc19_avg,
+            labels=self.output_labels_test
+        )
+        self.loss = tf.reduce_mean(self.loss) + self.l2_loss
+
+    def assign_weight(self, sess, graph_weights):
+        weights = tf.get_collection(tf.GraphKeys.WEIGHTS)
+
+        for weight in weights:
+            weight_values = graph_weights[weight.name.split(':')[0]]
+            layer = int(weight.name.split(':')[0].split('/')[-1][6:])
+            if layer == 17:
+                weight_values = weight_values.reshape([7, 7,
+                                                       self.vgg_conf['conv' + str(layer - 1)],
+                                                       self.vgg_conf['FC' + str(layer)]])
+            if layer in [18, 19]:
+                weight_values = weight_values.reshape([1, 1,
+                                                       self.vgg_conf['FC' + str(layer - 1)],
+                                                       self.vgg_conf['FC' + str(layer)]])
+            sess.run(tf.assign(weight, weight_values))
+
+    def test(self, batch_size=64):
+        """
+        Test the vgg graph.
+
+        :param batch_size: batch size of the model while training
+        """
+        graph_weights = self.get_graph_weights()
+        self.build_graph_test()
+
+        lsvrc2010 = LSVRC2010(self.path, batch_size)
+        saver = tf.train.Saver()
+
+        with tf.Session() as sess:
+            self.assign_weight(sess, graph_weights)
+
+            next_batch = lsvrc2010.gen_batch_test
+            avg_loss, avg_top1, avg_top5 = [], [], []
+            start = time.time()
+            for idx, (images, labels) in enumerate(next_batch):
+                loss, fc19 = 0, 0
+                for i in range(3):
+                    feed_dict = {self.input_images_test: images[i],
+                                 self.output_labels_test: labels}
+                    _loss, _fc19 = sess.run([self.loss, self.fc19_avg],
+                                            feed_dict=feed_dict)
+                    loss += _loss
+                    fc19 += _fc19
+
+                loss /= 3
+                fc19 /= 3
+
+                top1 = np.argmax(fc19) == np.argmax(labels)
+                top5 = np.argmax(labels) in np.argpartition(_fc19, -5)[0][-5:]
+
+                avg_loss.append(loss)
+                avg_top1.append(top1)
+                avg_top5.append(top5)
+
+                self.logger.info("Testing | Image No: %d Loss: %f Top1: %f Top5: %f",
+                                 idx,
+                                 sum(avg_loss) / len(avg_loss),
+                                 sum(avg_top1) / len(avg_top1),
+                                 sum(avg_top5) / len(avg_top5))
+                if (idx + 1) % 100 == 0:
+                    end = time.time()
+                    self.logger.info("It took %f seconds for 100 images", end - start)
+                    start = time.time()
+
     ########################  TENSORBOARD  ############################
 
     def add_summaries(self):
@@ -401,8 +562,15 @@ if __name__ == '__main__':
                         help = 'ImageNet dataset path')
     parser.add_argument('--restore_model', metavar = 'restore-model', default='true',
                         help = 'true if you want to restore the saved model')
+    parser.add_argument('--train', metavar = 'train', default='true',
+                        help = 'true if you want to train the model')
+    parser.add_argument('--test', metavar = 'test', default='true',
+                        help = 'true if you want to test the model')
     args = parser.parse_args()
 
     restore = True if args.restore_model == 'true' else False
     vgg = VGG(args.image_path)
-    vgg.train(50, batch_size=64, restore=restore)
+    if args.train == 'true':
+        vgg.train(50, batch_size=64, restore=restore)
+    if args.test == 'true':
+        vgg.test()

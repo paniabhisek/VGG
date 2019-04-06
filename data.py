@@ -287,47 +287,34 @@ class LSVRC2010:
 
         return X, Y
 
-    def get_5_patches(self, image_path):
+    def rescaled_imgs(self, image_path):
         """
-        Get 5 patches for an image.
+        Rescale an image using scale jittering
 
-        It returns a list of 5 patches(top left, top right,
-        bottom left, bottom right and center) of an image.
+        Isotropically rescale the images with smallest
+        sides as 256, 384 and 512
 
         :param image_path: the path of an image
         """
-        img = Image.open(image_path)
-        # Resize the shorter size to 256
-        if img.width < 256:
-            img = img.resize((256, img.height))
-        if img.height < 256:
-            img = img.resize((img.width, 256))
+        imgs = []
+        for new_smallest_side in [256, 384, 512]:
+            img = Image.open(image_path)
 
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
+            # Rescale isotropically
+            if img.width <= img.height:
+                img = img.resize((new_smallest_side,
+                                  round(new_smallest_side * img.height / img.width)))
+            else:
+                img = img.resize((round(new_smallest_side * img.width / img.height),
+                                  new_smallest_side))
 
-        # Take 5 patches(top left, top right, bottom left, bottom right, center)
-        img_crop = [None] * 5
-        img_crop[0] = img.crop((0, 0, self.image_size[0],
-                                self.image_size[1]))
-        img_crop[1] = img.crop((img.width - self.image_size[0], 0,
-                                img.width - self.image_size[0] + self.image_size[1],
-                                self.image_size[1]))
-        img_crop[2] = img.crop((0, img.height - self.image_size[1],
-                                self.image_size[0], img.height))
-        img_crop[3] = img.crop((img.width - self.image_size[0],
-                                img.height - self.image_size[1],
-                                img.width, img.height))
-        img_crop[4] = img.crop((img.width // 2 - self.image_size[0] // 2,
-                                img.height // 2 - self.image_size[1] // 2,
-                                img.width // 2 - self.image_size[0] // 2 + self.image_size[0],
-                                img.height // 2 - self.image_size[1] // 2 + self.image_size[1]))
+            # Change the mode to RGB if it is not
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
 
-        patches = [None] * 5
-        for i, img in enumerate(img_crop):
-            patches[i] = preprocess(lambda self, img: img, False)(self, img_crop[i])
+            imgs.append(preprocess(lambda self, img: img, False, False)(self, img))
 
-        return patches
+        return imgs
 
     @property
     def gen_batch_test(self):
@@ -340,7 +327,7 @@ class LSVRC2010:
         batch no of images. Y is the labels which size is batch size.
         """
         logger_test = logging.getLogger('VGGTest.LSVRC2010')
-        batch_size = 128
+        batch_size = 1
         images = list(self.image_names_test.keys())
         def get_batch(idx):
             """
@@ -351,18 +338,18 @@ class LSVRC2010:
             logger_test.debug("Reading batch for index: %d", idx)
             _images = images[idx * batch_size: (idx + 1) * batch_size]
 
-            X = [[] for _ in range(5)]
+            X = [[] for _ in range(3)]
             Y = []
             for image in _images:
-                patches = self.get_5_patches(self.image_path(image, test=True))
-                for i, patch in enumerate(patches):
-                    X[i].append(patch)
+                imgs = self.rescaled_imgs(self.image_path(image, test=True))
+                for i, img in enumerate(imgs):
+                    X[i].append(img)
                 Y.append(self.image_names_test[image])
 
             for i in range(len(X)):
-                X[i] = np.array(X[i])
+                X[i] = np.array(X[i], dtype=np.float32)
 
-            return X, np.array(Y)
+            return X, self.one_hot(Y)
 
         source = (get_batch, len(self.image_names_test), batch_size)
         store = Store(source, 10)
