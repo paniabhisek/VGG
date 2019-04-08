@@ -67,3 +67,9 @@ Tensorflow Generated Graphs
 **loss**:
 
 .. image:: pictures/loss.png
+
+Accuracies
+----------
+
+ * Top1 accuracy: **67.1013%**
+ * Top5 accuracy: **85.1460%**
